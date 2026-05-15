@@ -1,3 +1,8 @@
+---
+title: Feature Mapping
+description: "How clawpatch maps repositories into reviewable feature slices"
+---
+
 # Feature Mapping
 
 `clawpatch map` creates durable feature records under `.clawpatch/features/`.

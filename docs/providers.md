@@ -1,3 +1,8 @@
+---
+title: Providers
+description: "AI provider configuration and model selection"
+---
+
 # Providers
 
 The default provider is the local Codex CLI.

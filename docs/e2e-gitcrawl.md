@@ -1,3 +1,8 @@
+---
+title: E2E Verification with Gitcrawl
+description: "Real-world end-to-end test results using clawpatch on gitcrawl"
+---
+
 # gitcrawl e2e verification
 
 Date: 2026-05-15

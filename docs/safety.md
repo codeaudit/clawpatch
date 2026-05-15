@@ -1,3 +1,8 @@
+---
+title: Safety
+description: "Safety rules and constraints in clawpatch"
+---
+
 # Safety
 
 Current safety rules:

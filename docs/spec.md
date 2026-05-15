@@ -1,3 +1,8 @@
+---
+title: Specification
+description: "Product goals, design, implementation details, and architecture"
+---
+
 # clawpatch spec
 
 Automated code review that lands fixes.

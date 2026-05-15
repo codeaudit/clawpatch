@@ -1,3 +1,8 @@
+---
+title: Patching
+description: "Explicit fix workflow for individual findings"
+---
+
 # Patching
 
 `clawpatch fix` is explicit and finding-scoped.

@@ -1,3 +1,8 @@
+---
+title: Initialization
+description: "Project initialization and detection"
+---
+
 # Initialization
 
 `clawpatch init` creates project-local state.

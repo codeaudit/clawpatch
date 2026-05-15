@@ -1,3 +1,8 @@
+---
+title: Configuration
+description: "Configure clawpatch behavior, providers, and validation commands"
+---
+
 # Configuration
 
 Config is loaded from:

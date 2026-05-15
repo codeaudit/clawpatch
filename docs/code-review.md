@@ -1,3 +1,8 @@
+---
+title: Code Review
+description: "How clawpatch reviews features with AI providers and persists findings"
+---
+
 # Code Review
 
 `clawpatch review` reviews feature records created by `clawpatch map`.

@@ -10,9 +10,16 @@ import { changedFilesSince, discoverGit, findProjectRoot } from "./git.js";
 import { stableId, runId } from "./id.js";
 import { mapWithSource } from "./agent-mapper.js";
 import { mapFeatures } from "./mapper.js";
-import { suppressedTestCommandTag } from "./mappers/types.js";
+import { emitProgress } from "./progress.js";
 import { providerByName } from "./provider.js";
 import { buildFixPrompt, buildReviewPrompt, buildRevalidatePrompt } from "./prompt.js";
+import {
+  evidenceLabel,
+  findingSummaries,
+  findingSummary,
+  renderFindingDetail,
+  renderReport,
+} from "./reporting.js";
 import {
   claimFeature,
   clearFeatureLockFiles,
@@ -44,6 +51,7 @@ import {
   reasoningEffortSchema,
   reasoningEfforts,
 } from "./types.js";
+import { validationCommandsForFeature } from "./validation.js";
 
 export type AppContext = {
   root: string;
@@ -90,14 +98,14 @@ export async function mapCommand(
   const config = applyProviderFlags(loaded.config, flags);
   const provider = source === "heuristic" ? null : providerByName(config.provider.name);
   const existing = await readFeatures(loaded.paths);
-  emitMapProgress(context, "start", {
+  emitProgress(context, "map", "start", {
     source,
     existing: existing.length,
     dryRun: flags["dryRun"] === true,
   });
   const heuristic = await mapFeatures(loaded.root, loaded.project, existing, {
     onProgress: (event) => {
-      emitMapProgress(context, event.event, {
+      emitProgress(context, "map", event.event, {
         mapper: event.mapper,
         ...(event.seeds === undefined ? {} : { seeds: event.seeds }),
         ...(event.elapsedMs === undefined
@@ -106,7 +114,7 @@ export async function mapCommand(
       });
     },
   });
-  emitMapProgress(context, "heuristic-done", {
+  emitProgress(context, "map", "heuristic-done", {
     features: heuristic.features.length,
     new: heuristic.created,
     changed: heuristic.changed,
@@ -117,12 +125,12 @@ export async function mapCommand(
     provider,
     providerOptions: providerOptions(config),
     onProgress: (event, fields) => {
-      emitMapProgress(context, event, fields);
+      emitProgress(context, "map", event, fields);
     },
   });
   const activeFeatureIds = new Set(result.features.map((feature) => feature.featureId));
   if (flags["dryRun"] === true) {
-    emitMapProgress(context, "done", {
+    emitProgress(context, "map", "done", {
       features: result.features.length,
       usedAgent: result.decision.usedAgent,
       elapsed: `${Math.round((Date.now() - started) / 1000)}s`,
@@ -138,7 +146,7 @@ export async function mapCommand(
       reason: result.decision.reason,
     };
   }
-  emitMapProgress(context, "write-start", { features: result.features.length });
+  emitProgress(context, "map", "write-start", { features: result.features.length });
   for (const feature of result.features) {
     await writeFeature(loaded.paths, feature);
   }
@@ -152,7 +160,7 @@ export async function mapCommand(
       });
     }
   }
-  emitMapProgress(context, "done", {
+  emitProgress(context, "map", "done", {
     features: result.features.length,
     usedAgent: result.decision.usedAgent,
     elapsed: `${Math.round((Date.now() - started) / 1000)}s`,
@@ -225,7 +233,7 @@ export async function reviewCommand(
   const errors: Array<{ message: string; code: string | null; error: unknown }> = [];
   const jobs = Math.min(reviewJobs(flags), Math.max(features.length, 1));
   let cursor = 0;
-  emitReviewProgress(context, "start", {
+  emitProgress(context, "review", "start", {
     run: currentRunId,
     features: features.length,
     jobs,
@@ -270,7 +278,7 @@ export async function reviewCommand(
       findingIds,
       errors: errors.map(({ message, code }) => ({ message, code })),
     });
-    emitReviewProgress(context, "failed", { run: currentRunId, errors: errors.length });
+    emitProgress(context, "review", "failed", { run: currentRunId, errors: errors.length });
     throw errors[0]?.error ?? new ClawpatchError("review failed", 1, "review-failed");
   }
   const finished: RunRecord = {
@@ -280,7 +288,7 @@ export async function reviewCommand(
     findingIds,
   };
   await writeRun(loaded.paths, finished);
-  emitReviewProgress(context, "done", {
+  emitProgress(context, "review", "done", {
     run: currentRunId,
     reviewed: features.length,
     findings: findingIds.length,
@@ -473,7 +481,7 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
   } = options;
   const started = Date.now();
   let locked: FeatureRecord | null = null;
-  emitReviewProgress(context, "feature-start", {
+  emitProgress(context, "review", "feature-start", {
     index: index + 1,
     total,
     feature: feature.featureId,
@@ -525,7 +533,7 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
     await writeFeature(loaded.paths, updated);
     await releaseFeatureLock(loaded.paths, lockedFeature.featureId);
     locked = null;
-    emitReviewProgress(context, "feature-done", {
+    emitProgress(context, "review", "feature-done", {
       index: index + 1,
       total,
       feature: feature.featureId,
@@ -559,7 +567,7 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
         await releaseFeatureLock(loaded.paths, locked.featureId);
       }
     }
-    emitReviewProgress(context, "feature-error", {
+    emitProgress(context, "review", "feature-error", {
       index: index + 1,
       total,
       feature: feature.featureId,
@@ -585,14 +593,14 @@ export async function revalidateCommand(
   await writeRun(loaded.paths, run);
   const results: Array<{ finding: string; outcome: FindingRecord["status"]; reasoning: string }> =
     [];
-  emitRevalidateProgress(context, "start", {
+  emitProgress(context, "revalidate", "start", {
     run: currentRunId,
     findings: findings.length,
   });
   try {
     for (const [index, finding] of findings.entries()) {
       const started = Date.now();
-      emitRevalidateProgress(context, "finding-start", {
+      emitProgress(context, "revalidate", "finding-start", {
         index: index + 1,
         total: findings.length,
         finding: finding.findingId,
@@ -623,7 +631,7 @@ export async function revalidateCommand(
         outcome: output.outcome,
         reasoning: output.reasoning,
       });
-      emitRevalidateProgress(context, "finding-done", {
+      emitProgress(context, "revalidate", "finding-done", {
         index: index + 1,
         total: findings.length,
         finding: finding.findingId,
@@ -637,7 +645,7 @@ export async function revalidateCommand(
       finishedAt: nowIso(),
       findingIds: results.map((result) => result.finding),
     });
-    emitRevalidateProgress(context, "done", {
+    emitProgress(context, "revalidate", "done", {
       run: currentRunId,
       revalidated: results.length,
       fixed: results.filter((result) => result.outcome === "fixed").length,
@@ -654,7 +662,7 @@ export async function revalidateCommand(
       findingIds: run.findingIds,
       errors: [{ message, code: error instanceof ClawpatchError ? error.code : null }],
     });
-    emitRevalidateProgress(context, "failed", {
+    emitProgress(context, "revalidate", "failed", {
       run: currentRunId,
       error: message,
     });
@@ -952,30 +960,6 @@ function parseMapSource(flags: Record<string, string | boolean>): "heuristic" | 
   );
 }
 
-function validationCommandsForFeature(
-  feature: FeatureRecord | null,
-  commands: {
-    typecheck: string | null;
-    lint: string | null;
-    format: string | null;
-    test: string | null;
-  },
-): string[] {
-  const featureCommands = (feature?.tests ?? []).flatMap((test) =>
-    test.command === null || test.command.length === 0 ? [] : [test.command],
-  );
-  const configuredTest =
-    feature?.tags.includes(suppressedTestCommandTag) === true ? null : commands.test;
-  const ordered = [
-    commands.format,
-    ...featureCommands,
-    commands.typecheck,
-    commands.lint,
-    configuredTest,
-  ].filter((command): command is string => command !== null && command.length > 0);
-  return Array.from(new Set(ordered));
-}
-
 async function selectRevalidationFindings(
   loaded: Awaited<ReturnType<typeof loadProjectState>>,
   flags: Record<string, string | boolean>,
@@ -1243,48 +1227,6 @@ function reviewJobs(flags: Record<string, string | boolean>): number {
   return Math.min(Math.floor(parsed), 32);
 }
 
-function emitMapProgress(
-  context: AppContext,
-  event: string,
-  fields: Record<string, string | number | boolean>,
-): void {
-  if (context.options.quiet) {
-    return;
-  }
-  const values = Object.entries(fields)
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(" ");
-  process.stderr.write(`clawpatch map ${event}${values.length > 0 ? ` ${values}` : ""}\n`);
-}
-
-function emitReviewProgress(
-  context: AppContext,
-  event: string,
-  fields: Record<string, string | number | boolean>,
-): void {
-  if (context.options.quiet) {
-    return;
-  }
-  const values = Object.entries(fields)
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(" ");
-  process.stderr.write(`clawpatch review ${event}${values.length > 0 ? ` ${values}` : ""}\n`);
-}
-
-function emitRevalidateProgress(
-  context: AppContext,
-  event: string,
-  fields: Record<string, string | number | boolean>,
-): void {
-  if (context.options.quiet) {
-    return;
-  }
-  const values = Object.entries(fields)
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(" ");
-  process.stderr.write(`clawpatch revalidate ${event}${values.length > 0 ? ` ${values}` : ""}\n`);
-}
-
 function featureLock(currentRunId: string): NonNullable<FeatureRecord["lock"]> {
   return {
     lockedByRunId: currentRunId,
@@ -1367,150 +1309,6 @@ async function writeMarkdownReport(
   return path;
 }
 
-function renderReport(
-  findings: FindingRecord[],
-  features: FeatureRecord[] = [],
-  options: { includeNext?: boolean } = {},
-): string {
-  const lines = ["# clawpatch report", "", `findings: ${findings.length}`, ""];
-  const featureById = new Map(features.map((feature) => [feature.featureId, feature]));
-  for (const finding of findings) {
-    lines.push(`## ${finding.severity}: ${finding.title}`);
-    lines.push("");
-    lines.push(`id: ${finding.findingId}`);
-    lines.push(`category: ${finding.category}`);
-    lines.push(`confidence: ${finding.confidence}`);
-    lines.push(`triage: ${finding.triage}`);
-    lines.push(`status: ${finding.status}`);
-    lines.push(`feature: ${featureLabel(finding.featureId, featureById.get(finding.featureId))}`);
-    if (options.includeNext === true) {
-      lines.push(`next: clawpatch show --finding ${finding.findingId}`);
-    }
-    if (finding.evidence.length > 0) {
-      lines.push("");
-      lines.push("evidence:");
-      for (const evidence of finding.evidence) {
-        lines.push(`- ${evidenceLabel(evidence)}`);
-      }
-    }
-    lines.push("");
-    lines.push(finding.reasoning);
-    if (finding.recommendation.length > 0) {
-      lines.push("");
-      lines.push("recommendation:");
-      lines.push(finding.recommendation);
-    }
-    if (finding.whyTestsDoNotAlreadyCoverThis.length > 0) {
-      lines.push("");
-      lines.push("test analysis:");
-      lines.push(finding.whyTestsDoNotAlreadyCoverThis);
-    }
-    if (finding.suggestedRegressionTest !== null && finding.suggestedRegressionTest.length > 0) {
-      lines.push("");
-      lines.push("suggested regression test:");
-      lines.push(finding.suggestedRegressionTest);
-    }
-    if (finding.minimumFixScope.length > 0) {
-      lines.push("");
-      lines.push("minimum fix scope:");
-      lines.push(finding.minimumFixScope);
-    }
-    if (finding.reproduction !== null && finding.reproduction.length > 0) {
-      lines.push("");
-      lines.push("repro:");
-      lines.push(finding.reproduction);
-    }
-    lines.push("");
-  }
-  return `${lines.join("\n")}\n`;
-}
-
-function renderFindingDetail(
-  finding: FindingRecord,
-  feature: FeatureRecord | null,
-  patches: PatchAttempt[],
-  validation: string[],
-): string {
-  const lines = [`# ${finding.title}`, ""];
-  lines.push(`id: ${finding.findingId}`);
-  lines.push(`status: ${finding.status}`);
-  lines.push(`severity: ${finding.severity}`);
-  lines.push(`category: ${finding.category}`);
-  lines.push(`confidence: ${finding.confidence}`);
-  lines.push(`triage: ${finding.triage}`);
-  lines.push(`feature: ${featureLabel(finding.featureId, feature ?? undefined)}`);
-  lines.push("");
-  lines.push("evidence:");
-  for (const evidence of finding.evidence) {
-    lines.push(`- ${evidenceLabel(evidence)}`);
-  }
-  if (finding.evidence.length === 0) {
-    lines.push("- none");
-  }
-  lines.push("");
-  lines.push("reasoning:");
-  lines.push(finding.reasoning);
-  lines.push("");
-  lines.push("recommendation:");
-  lines.push(finding.recommendation);
-  if (finding.whyTestsDoNotAlreadyCoverThis.length > 0) {
-    lines.push("");
-    lines.push("test analysis:");
-    lines.push(finding.whyTestsDoNotAlreadyCoverThis);
-  }
-  if (finding.suggestedRegressionTest !== null && finding.suggestedRegressionTest.length > 0) {
-    lines.push("");
-    lines.push("suggested regression test:");
-    lines.push(finding.suggestedRegressionTest);
-  }
-  if (finding.minimumFixScope.length > 0) {
-    lines.push("");
-    lines.push("minimum fix scope:");
-    lines.push(finding.minimumFixScope);
-  }
-  if (feature !== null) {
-    lines.push("");
-    lines.push("owned files:");
-    for (const file of feature.ownedFiles) {
-      lines.push(`- ${file.path}: ${file.reason}`);
-    }
-    lines.push("");
-    lines.push("context files:");
-    for (const file of feature.contextFiles) {
-      lines.push(`- ${file.path}: ${file.reason}`);
-    }
-  }
-  lines.push("");
-  lines.push("validation:");
-  for (const command of validation) {
-    lines.push(`- ${command}`);
-  }
-  if (validation.length === 0) {
-    lines.push("- none");
-  }
-  lines.push("");
-  lines.push("patch attempts:");
-  for (const patch of patches) {
-    lines.push(`- ${patch.patchAttemptId}: ${patch.status}`);
-  }
-  if (patches.length === 0) {
-    lines.push("- none");
-  }
-  lines.push("");
-  lines.push("history:");
-  for (const entry of finding.history) {
-    lines.push(
-      `- ${entry.createdAt}: ${entry.kind} ${entry.status ?? ""} ${entry.note ?? ""}`.trim(),
-    );
-  }
-  if (finding.history.length === 0) {
-    lines.push("- none");
-  }
-  lines.push("");
-  lines.push(`next: clawpatch triage --finding ${finding.findingId} --status <status>`);
-  return `${lines.join("\n")}\n`;
-}
-
 function filterFindings(
   findings: FindingRecord[],
   flags: Record<string, string | boolean>,
@@ -1545,100 +1343,6 @@ function findingRank(finding: FindingRecord): number {
         ? 1
         : 2;
   return bucket * 1000 + confidenceRank * 100 + severityRank;
-}
-
-function findingSummaries(
-  findings: FindingRecord[],
-  features: FeatureRecord[],
-): Array<{
-  id: string;
-  title: string;
-  severity: FindingRecord["severity"];
-  category: FindingRecord["category"];
-  confidence: FindingRecord["confidence"];
-  triage: FindingRecord["triage"];
-  status: FindingRecord["status"];
-  feature: { id: string; title: string | null };
-  evidence: Array<{
-    path: string;
-    startLine: number | null;
-    endLine: number | null;
-    symbol: string | null;
-  }>;
-  recommendation: string;
-  reproduction: string | null;
-}> {
-  const featureById = new Map(features.map((feature) => [feature.featureId, feature]));
-  return findings.map((finding) =>
-    findingSummary(finding, featureById.get(finding.featureId) ?? null),
-  );
-}
-
-function findingSummary(
-  finding: FindingRecord,
-  feature: FeatureRecord | null,
-): {
-  id: string;
-  title: string;
-  severity: FindingRecord["severity"];
-  category: FindingRecord["category"];
-  confidence: FindingRecord["confidence"];
-  triage: FindingRecord["triage"];
-  status: FindingRecord["status"];
-  feature: { id: string; title: string | null };
-  evidence: Array<{
-    path: string;
-    startLine: number | null;
-    endLine: number | null;
-    symbol: string | null;
-  }>;
-  recommendation: string;
-  reproduction: string | null;
-  whyTestsDoNotAlreadyCoverThis: string;
-  suggestedRegressionTest: string | null;
-  minimumFixScope: string;
-  next: string;
-} {
-  return {
-    id: finding.findingId,
-    title: finding.title,
-    severity: finding.severity,
-    category: finding.category,
-    confidence: finding.confidence,
-    triage: finding.triage,
-    status: finding.status,
-    feature: {
-      id: finding.featureId,
-      title: feature?.title ?? null,
-    },
-    evidence: finding.evidence.map((evidence) => ({
-      path: evidence.path,
-      startLine: evidence.startLine,
-      endLine: evidence.endLine,
-      symbol: evidence.symbol,
-    })),
-    recommendation: finding.recommendation,
-    reproduction: finding.reproduction,
-    whyTestsDoNotAlreadyCoverThis: finding.whyTestsDoNotAlreadyCoverThis,
-    suggestedRegressionTest: finding.suggestedRegressionTest,
-    minimumFixScope: finding.minimumFixScope,
-    next: `clawpatch show --finding ${finding.findingId}`,
-  };
-}
-
-function evidenceLabel(evidence: FindingRecord["evidence"][number]): string {
-  const line =
-    evidence.startLine === null
-      ? ""
-      : evidence.endLine !== null && evidence.endLine !== evidence.startLine
-        ? `:${evidence.startLine}-${evidence.endLine}`
-        : `:${evidence.startLine}`;
-  const symbol = evidence.symbol === null ? "" : ` (${evidence.symbol})`;
-  return `${evidence.path}${line}${symbol}`;
-}
-
-function featureLabel(featureId: string, feature: FeatureRecord | undefined): string {
-  return feature === undefined ? featureId : `${feature.title} (${featureId})`;
 }
 
 function stringFlag(flags: Record<string, string | boolean>, name: string): string | undefined {

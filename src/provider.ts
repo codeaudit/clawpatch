@@ -1,9 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
 import { runCommandArgs } from "./exec.js";
 import { ClawpatchError } from "./errors.js";
+import {
+  agentMapJsonSchema,
+  fixPlanJsonSchema,
+  providerJsonSchema,
+  reviewJsonSchema,
+  revalidateJsonSchema,
+} from "./provider-schema.js";
 import {
   AgentMapOutput,
   FixPlanOutput,
@@ -903,38 +909,3 @@ export const __testing = {
   parseCodexJson,
   providerJsonSchema,
 };
-
-const providerUnsupportedJsonSchemaKeywords = new Set([
-  "$schema",
-  "exclusiveMaximum",
-  "exclusiveMinimum",
-  "maximum",
-  "minimum",
-  "multipleOf",
-]);
-
-const agentMapJsonSchema = providerJsonSchema(agentMapOutputSchema);
-const reviewJsonSchema = providerJsonSchema(reviewOutputSchema);
-const revalidateJsonSchema = providerJsonSchema(revalidateOutputSchema);
-const fixPlanJsonSchema = providerJsonSchema(fixPlanOutputSchema);
-
-function providerJsonSchema(schema: z.ZodType): object {
-  return stripProviderUnsupportedSchemaKeywords(z.toJSONSchema(schema)) as object;
-}
-
-function stripProviderUnsupportedSchemaKeywords(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stripProviderUnsupportedSchemaKeywords);
-  }
-  if (typeof value !== "object" || value === null) {
-    return value;
-  }
-  const output: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (providerUnsupportedJsonSchemaKeywords.has(key)) {
-      continue;
-    }
-    output[key] = stripProviderUnsupportedSchemaKeywords(item);
-  }
-  return output;
-}

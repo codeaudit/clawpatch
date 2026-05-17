@@ -4435,6 +4435,32 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("detects Android Kotlin roles from bare plugin aliases without a catalog", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-bare-plugin-alias-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", "plugins { alias(libs.plugins.android) }\n");
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects Android Kotlin roles from resolved version-catalog plugin aliases", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-plugin-catalog-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -4759,6 +4785,80 @@ describe("mapFeatures", () => {
         "  }",
         "}",
         "apply plugin: 'com.android.library'",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
+  it("detects root Android roles from allprojects apply plugin blocks", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-allprojects-apply-");
+    await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle",
+      [
+        "plugins { id 'org.jetbrains.kotlin.jvm' }",
+        "allprojects {",
+        "  apply plugin: 'com.android.library'",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
+  it("detects root Android roles from allprojects android blocks", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-allprojects-extension-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        'plugins { id("org.jetbrains.kotlin.jvm") }',
+        "allprojects {",
+        "  android {",
+        '    namespace = "com.example"',
+        "  }",
+        "}",
         "",
       ].join("\n"),
     );

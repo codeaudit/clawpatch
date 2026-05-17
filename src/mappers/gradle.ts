@@ -2012,9 +2012,9 @@ function isInsideGradleChildProjectBlock(source: string, offset: number): boolea
     if (char === "{") {
       const prefix = source.slice(Math.max(0, index - 100), index).trimEnd();
       const childProjectScope =
-        /\b(?:subprojects|allprojects)\s*$/u.test(prefix) ||
-        /\b(?:subprojects|allprojects)\.configureEach\s*$/u.test(prefix) ||
-        /\bconfigure\s*\(\s*(?:subprojects|allprojects)\s*\)\s*$/u.test(prefix) ||
+        /\bsubprojects\s*$/u.test(prefix) ||
+        /\bsubprojects\.configureEach\s*$/u.test(prefix) ||
+        /\bconfigure\s*\(\s*subprojects\s*\)\s*$/u.test(prefix) ||
         /\bproject\s*\([^)]*\)\s*$/u.test(prefix);
       scopes.push((scopes.at(-1) ?? false) || childProjectScope);
     } else if (char === "}") {
@@ -2031,7 +2031,7 @@ function hasGradleApplyFalse(source: string, start: number): boolean {
 }
 
 function androidPluginDeclarationPattern(): RegExp {
-  return /\b(?:id\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?|alias\s*\(\s*libs\.plugins\.[A-Za-z0-9_.]*(?:android\.(?:application|library|dynamicFeature|dynamic-feature|test)|android(?:Application|Library|DynamicFeature|Test)|comAndroid(?:Application|Library|DynamicFeature|Test))[A-Za-z0-9_.]*\s*\))/gu;
+  return /\b(?:id\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?|alias\s*\(\s*libs\.plugins\.[A-Za-z0-9_.]*android[A-Za-z0-9_.]*\s*\))/giu;
 }
 
 function gradlePluginInvocationEnd(source: string, start: number): number {

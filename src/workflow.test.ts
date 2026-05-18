@@ -3261,6 +3261,18 @@ describe("workflow", () => {
       const stored = (await readPatchAttempts(paths)).find(
         (candidate) => candidate.patchAttemptId === patch.patchAttemptId,
       );
+      const cliPreview = await runCli([
+        "--root",
+        root,
+        "open-pr",
+        "--patch",
+        patch.patchAttemptId,
+        "--base",
+        "main",
+        "--branch",
+        "clawpatch/pat_open_pr",
+        "--dry-run",
+      ]);
 
       expect(preview).toMatchObject({
         dryRun: true,
@@ -3274,6 +3286,8 @@ describe("workflow", () => {
           expect.stringContaining("gh pr create --base main --head clawpatch/pat_open_pr"),
         ]),
       });
+      expect(cliPreview.stdout).toContain("commandsPreview: git switch");
+      expect(cliPreview.stdout).toContain("gh pr create --base main --head clawpatch/pat_open_pr");
       expect(stored?.git.prUrl).toBeNull();
     } finally {
       if (previousProvider === undefined) {

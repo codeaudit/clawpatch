@@ -1085,6 +1085,7 @@ export async function openPrCommand(
       title,
       body,
       commands,
+      commandsPreview: commands.join("\n"),
     };
   }
 

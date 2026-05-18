@@ -862,10 +862,22 @@ async function sourceLikeFilesInto(
     await sourceLikeFilesInto(root, packageRelativePath(prefix, entry), remainingDepth - 1, output);
   }
   for (const file of await safeFileEntries(root, prefix)) {
-    if (/\.(?:[cm]?[jt]sx?)$/iu.test(file)) {
-      output.push(packageRelativePath(prefix, file));
+    const path = packageRelativePath(prefix, file);
+    if (isReviewableGenericSourceFile(path)) {
+      output.push(path);
     }
   }
+}
+
+function isReviewableGenericSourceFile(path: string): boolean {
+  return (
+    /\.(?:[cm]?[jt]sx?)$/iu.test(path) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/iu.test(path) &&
+    !/\.d\.[cm]?ts$/iu.test(path) &&
+    !/(^|\/)(?:__fixtures__|fixtures|testdata)(\/|$)/iu.test(path) &&
+    !/(^|\/)(?:generated|__generated__)(\/|$)/iu.test(path) &&
+    !/(^|\/)[^/]*(?:generated|\.gen)\.[^.]+$/iu.test(path)
+  );
 }
 
 async function safeFileEntries(root: string, prefix: string): Promise<string[]> {

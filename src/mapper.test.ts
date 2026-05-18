@@ -275,6 +275,36 @@ describe("mapFeatures", () => {
     ).toBe("apps/site/src/pages/about.tsx");
   });
 
+  it("does not treat non-Next package scripts as hoisted Next projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-next-hoisted-script-helper-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/site/package.json",
+      JSON.stringify({ name: "site", scripts: { sitemap: "next-sitemap" } }, null, 2),
+    );
+    await writeFixture(root, "apps/site/vite.config.ts", "export default {};\n");
+    await writeFixture(
+      root,
+      "apps/site/src/pages/about.tsx",
+      "export default function About() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/site/src");
+    expect(result.features.some((feature) => feature.title === "site route /about")).toBe(false);
+  });
+
   it("maps Next routes inside Nx projects without package manifests", async () => {
     const root = await fixtureRoot("clawpatch-map-next-nx-no-package-");
     await writeFixture(
@@ -322,6 +352,34 @@ describe("mapFeatures", () => {
         "project-root:apps/portal",
         "project-type:application",
       ]),
+    );
+  });
+
+  it("does not treat non-Next project.json apps as hoisted Next projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-next-nx-vite-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", dependencies: { next: "1.0.0" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/admin/project.json",
+      JSON.stringify({ name: "admin", sourceRoot: "apps/admin/src" }, null, 2),
+    );
+    await writeFixture(root, "apps/admin/vite.config.ts", "export default {};\n");
+    await writeFixture(
+      root,
+      "apps/admin/src/pages/settings.tsx",
+      "export default function Settings() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/admin/src");
+    expect(result.features.some((feature) => feature.title === "admin route /settings")).toBe(
+      false,
     );
   });
 
@@ -551,6 +609,41 @@ describe("mapFeatures", () => {
     );
     await writeFixture(root, "apps/foo/src/README.md", "# notes\n");
     await writeFixture(root, "apps/foo/src/tsconfig.json", "{}\n");
+    await writeFixture(root, "apps/foo/bar/src/index.ts", "export const bar = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find(
+      (feature) => feature.title === "Node source apps/foo/bar/src",
+    );
+
+    expect(source?.ownedFiles).toContainEqual({
+      path: "apps/foo/bar/src/index.ts",
+      reason: "source group apps/foo/bar/src",
+    });
+    expect(source?.tags).toEqual(
+      expect.arrayContaining(["project:bar", "project-root:apps/foo/bar"]),
+    );
+    expect(result.features.some((feature) => feature.tags.includes("project-root:apps/foo"))).toBe(
+      false,
+    );
+  });
+
+  it("does not let non-reviewable src files suppress nested package-less projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-non-reviewable-src-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/**"] }, null, 2),
+    );
+    await writeFixture(root, "apps/foo/src/types.d.ts", "export type Config = {};\n");
+    await writeFixture(root, "apps/foo/src/index.test.ts", "test('container', () => {});\n");
+    await writeFixture(
+      root,
+      "apps/foo/src/generated/client.ts",
+      "export const generated = true;\n",
+    );
+    await writeFixture(root, "apps/foo/src/fixtures/example.ts", "export const fixture = true;\n");
     await writeFixture(root, "apps/foo/bar/src/index.ts", "export const bar = true;\n");
 
     const project = await detectProject(root);

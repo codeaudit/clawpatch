@@ -152,17 +152,25 @@ async function hasRootNextProjectSignal(root: string, project: NodeProjectInfo):
     return false;
   }
   if (project.projectJsonPath !== null) {
-    return hasLiteralNextRoutes(root, project);
+    return (
+      !(await hasNonNextWebConfig(root, project)) && (await hasLiteralNextRoutes(root, project))
+    );
   }
-  const scripts = project.packageJson?.scripts;
-  if (
-    typeof scripts === "object" &&
-    scripts !== null &&
-    Object.values(scripts).some((script) => typeof script === "string" && /\bnext\b/u.test(script))
-  ) {
-    return hasLiteralNextRoutes(root, project);
+  if (hasNextCommandScript(project.packageJson?.scripts)) {
+    return (
+      !(await hasNonNextWebConfig(root, project)) && (await hasLiteralNextRoutes(root, project))
+    );
   }
   return project.packageJson === null && (await hasPackageLessNextRoutes(root, project));
+}
+
+function hasNextCommandScript(scripts: unknown): boolean {
+  if (typeof scripts !== "object" || scripts === null) {
+    return false;
+  }
+  return Object.values(scripts).some(
+    (script) => typeof script === "string" && /(?:^|[\s;&|()])next(?:\s|$)/u.test(script),
+  );
 }
 
 async function hasLiteralNextRoutes(root: string, project: NodeProjectInfo): Promise<boolean> {

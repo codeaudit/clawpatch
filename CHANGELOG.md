@@ -5,6 +5,7 @@
 - Added `clawpatch ci` to initialize, map, review, write a report, and append a GitHub Actions step summary in one CI-friendly command.
 - Added `clawpatch open-pr --patch <id>` to turn an applied patch attempt into an explicit GitHub pull request.
 - Added review prompt provenance and budget accounting for included files, omitted files, prompt bytes, and approximate tokens.
+- Added retries for transient acpx JSON review failures via `--prompt-retries` and `CLAWPATCH_REVIEW_RETRIES`, thanks @coletebou.
 - Hardened review ingestion so provider findings must cite included files with valid line ranges and matching evidence quotes.
 - Added `total` and `results` aliases on `clawpatch report --json` output (`total` mirrors `findings`, `results` is the same reference as `items`); the legacy `findings: <number>` key is kept but deprecated and will be removed in v0.4.
 - Fixed `clawpatch open-pr` so repositories without default-branch metadata use a dedicated patch branch and let GitHub choose the PR base.
@@ -12,8 +13,14 @@
 - Fixed first-time `clawpatch open-pr` branch creation to start from the recorded patch base.
 - Fixed command execution so providers that exit before reading stdin do not surface benign `EPIPE` errors.
 - Fixed `clawpatch ci --since` empty-review output so it reports `reviewed: 0`.
+- Fixed formatter configuration so `oxfmt` uses two-space indentation consistently across platforms.
+- Added generic package-less monorepo app-root mapping for Node/Next projects under roots such as `apps/*` and `packages/*` when positive source or framework signals are present.
+- Added a release-prep checklist for auditing changelog, package metadata, and dry-run package contents without publishing.
 - Improved OpenCode malformed JSON diagnostics with output length, event kinds, and a bounded preview, thanks @rohitjavvadi.
 - Fixed Express route mapping for aliased Router imports that follow block comment banners, thanks @rohitjavvadi.
+- Fixed Laravel route mapping to include array-style `Route::group` prefixes, thanks @rohitjavvadi.
+- Fixed Fastify route-object mapping to emit static method arrays while ignoring dynamic entries, thanks @rohitjavvadi.
+- Fixed Fastify plugin callback route mapping for typed parameters and plugin aliases, thanks @rohitjavvadi.
 - Fixed Bun package-manager detection to recognize the text `bun.lock` lockfile, thanks @austinm911.
 
 ## 0.3.0 - 2026-05-18

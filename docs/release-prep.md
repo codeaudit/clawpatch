@@ -10,11 +10,11 @@ GitHub release, or change the package version.
 
 ## Current Snapshot
 
-As of 2026-05-18:
+As of 2026-05-22:
 
-- GitHub latest full release: `v0.3.0`
-- `package.json` version: `0.3.0`
-- npm `clawpatch` version: `0.3.0`
+- GitHub latest full release: `v0.4.0`
+- `package.json` version: `0.4.0`
+- npm `clawpatch` version: `0.4.0`
 - `pnpm pack:smoke` passed
 - `npm pack --dry-run --json --ignore-scripts` included expected package
   contents such as `dist/`, `README.md`, `LICENSE`, and `package.json`

@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.5.1 - Unreleased
+
 ## 0.5.0 - 2026-05-31
 
 - Added CUDA support to the C/C++ mapper, mapping `.cu` and `.cuh` sources as standalone `main()` files, CMake and autotools targets, legacy `FindCUDA` `cuda_add_executable` / `cuda_add_library` calls, and bounded loose source groups.

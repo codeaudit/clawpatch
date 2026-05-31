@@ -4,12 +4,17 @@ import {
   isSafeFile,
   isCOrCppTestPath,
   isSampleProjectPath,
+  languageLabel,
+  languageTag,
   normalize,
   packageTrustBoundaries,
   shouldSkip,
   stripLineComments,
+  targetLanguageTag,
   walk,
+  withCudaConcurrency,
 } from "./shared.js";
+import { cCppGroupSeeds } from "./c-cpp-groups.js";
 import { FeatureSeed, SeedFileRef } from "./types.js";
 
 export async function cCppSeeds(root: string): Promise<FeatureSeed[]> {
@@ -29,15 +34,19 @@ export async function cCppSeeds(root: string): Promise<FeatureSeed[]> {
       .flatMap((seed) => [seed.entryPath, ...(seed.ownedFiles?.map((file) => file.path) ?? [])]),
   );
   seeds.push(...(await mainFunctionTargets(root, files, alreadySeeded)));
+  const ownedPaths = new Set(
+    seeds.flatMap((seed) => [seed.entryPath, ...(seed.ownedFiles?.map((file) => file.path) ?? [])]),
+  );
+  seeds.push(...cCppGroupSeeds(files.filter(isCOrCppSource), ownedPaths));
   return dedupeByEntry(seeds);
 }
 
 function isCOrCppSource(path: string): boolean {
-  return /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/iu.test(path);
+  return /\.(?:c|cc|cpp|cxx|cu|cuh|h|hh|hpp|hxx)$/iu.test(path);
 }
 
 function isCOrCppCompilable(path: string): boolean {
-  return /\.(?:c|cc|cpp|cxx)$/iu.test(path);
+  return /\.(?:c|cc|cpp|cxx|cu)$/iu.test(path);
 }
 
 function isMakefile(path: string): boolean {
@@ -46,10 +55,6 @@ function isMakefile(path: string): boolean {
 
 function isCMake(path: string): boolean {
   return path.endsWith("CMakeLists.txt") || path.endsWith(".cmake");
-}
-
-function languageTag(path: string): "c" | "cpp" {
-  return /\.(?:C|H)$/u.test(path) || /\.(?:cc|cpp|cxx|hh|hpp|hxx)$/iu.test(path) ? "cpp" : "c";
 }
 
 async function autotoolsTargets(root: string, files: string[]): Promise<FeatureSeed[]> {
@@ -74,7 +79,7 @@ async function autotoolsTargets(root: string, files: string[]): Promise<FeatureS
       if (entryPath === null) {
         continue;
       }
-      const tag = languageTag(entryPath);
+      const tag = targetLanguageTag(entryPath, sourcePaths);
       seeds.push({
         title: `Autotools binary ${target}`,
         summary: `Autotools bin_PROGRAMS target declared in ${makefile}.`,
@@ -86,7 +91,7 @@ async function autotoolsTargets(root: string, files: string[]): Promise<FeatureS
         route: null,
         command: target,
         tags: [tag, "cli"],
-        trustBoundaries: ["user-input", "filesystem", "process-exec"],
+        trustBoundaries: withCudaConcurrency(["user-input", "filesystem", "process-exec"], tag),
         ownedFiles: targetSourceRefs(sourcePaths),
         contextFiles: [{ path: makefile, reason: "build target declaration" }],
       });
@@ -102,7 +107,7 @@ async function autotoolsTargets(root: string, files: string[]): Promise<FeatureS
         continue;
       }
       const entryPath = pickEntry(sourcePaths, target) ?? makefile;
-      const tag = languageTag(entryPath);
+      const tag = targetLanguageTag(entryPath, sourcePaths);
       seeds.push({
         title: `Autotools library ${target}`,
         summary: `Autotools lib_LTLIBRARIES target declared in ${makefile}.`,
@@ -114,7 +119,7 @@ async function autotoolsTargets(root: string, files: string[]): Promise<FeatureS
         route: null,
         command: null,
         tags: [tag, "library"],
-        trustBoundaries: packageTrustBoundaries(target),
+        trustBoundaries: withCudaConcurrency(packageTrustBoundaries(target), tag),
         ownedFiles: targetSourceRefs(sourcePaths),
         contextFiles: [{ path: makefile, reason: "build target declaration" }],
       });
@@ -139,7 +144,10 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
     const body = stripCMakeComments(await readFile(join(root, cmakeFile), "utf8").catch(() => ""));
     const effectiveProjectSourceDir = cmakeDeclaresProject(body) ? dir : projectSourceDir;
     const effectiveProjectName = cmakeProjectName(body) ?? projectName;
-    for (const args of cmakeCommandArgs(body, "add_executable")) {
+    for (const { command, args } of cmakeTargetCalls(body, [
+      "add_executable",
+      "cuda_add_executable",
+    ])) {
       const [rawTarget = "", ...sources] = splitWords(args);
       const target = resolveCMakeTargetName(rawTarget, effectiveProjectName);
       if (!isValidTargetName(target)) {
@@ -171,6 +179,7 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
       }
       const testEntryPath = cmakeTestExecutableEntry(target, entryPath);
       if (testEntryPath !== null) {
+        const testTag = targetLanguageTag(testEntryPath, sourcePaths);
         seeds.push({
           title: `CMake test suite ${target}`,
           summary: `CMake test executable ${target} declared in ${cmakeFile}.`,
@@ -181,8 +190,8 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
           symbol: null,
           route: null,
           command: null,
-          tags: [languageTag(testEntryPath), "test"],
-          trustBoundaries: [],
+          tags: [testTag, "test"],
+          trustBoundaries: withCudaConcurrency([], testTag),
           ownedFiles: targetSourceRefs(sourcePaths),
           contextFiles: cmakeTargetContextFiles(
             cmakeFile,
@@ -194,10 +203,10 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
         });
         continue;
       }
-      const tag = languageTag(entryPath);
+      const tag = targetLanguageTag(entryPath, sourcePaths);
       seeds.push({
         title: `CMake binary ${target}`,
-        summary: `CMake add_executable(${target}) declared in ${cmakeFile}.`,
+        summary: `CMake ${command}(${target}) declared in ${cmakeFile}.`,
         kind: "cli-command",
         source: "cmake-bin",
         confidence: "high",
@@ -206,12 +215,12 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
         route: null,
         command: target,
         tags: [tag, "cli"],
-        trustBoundaries: ["user-input", "filesystem", "process-exec"],
+        trustBoundaries: withCudaConcurrency(["user-input", "filesystem", "process-exec"], tag),
         ownedFiles: targetSourceRefs(sourcePaths),
         contextFiles,
       });
     }
-    for (const args of cmakeCommandArgs(body, "add_library")) {
+    for (const { command, args } of cmakeTargetCalls(body, ["add_library", "cuda_add_library"])) {
       const [rawTarget = "", ...sources] = splitWords(args);
       const target = resolveCMakeTargetName(rawTarget, effectiveProjectName);
       if (!isValidTargetName(target)) {
@@ -233,10 +242,10 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
         continue;
       }
       const entryPath = pickEntry(sourcePaths, target) ?? cmakeFile;
-      const tag = languageTag(entryPath);
+      const tag = targetLanguageTag(entryPath, sourcePaths);
       seeds.push({
         title: `CMake library ${target}`,
-        summary: `CMake add_library(${target}) declared in ${cmakeFile}.`,
+        summary: `CMake ${command}(${target}) declared in ${cmakeFile}.`,
         kind: "library",
         source: "cmake-lib",
         confidence: "high",
@@ -245,7 +254,7 @@ async function cmakeTargets(root: string, files: string[]): Promise<FeatureSeed[
         route: null,
         command: null,
         tags: [tag, "library"],
-        trustBoundaries: packageTrustBoundaries(target),
+        trustBoundaries: withCudaConcurrency(packageTrustBoundaries(target), tag),
         ownedFiles: targetSourceRefs(sourcePaths),
         contextFiles: cmakeTargetContextFiles(cmakeFile, "CMake target declaration", extraSources),
       });
@@ -515,6 +524,15 @@ function cmakeSubdirectories(body: string): string[] {
   return directories;
 }
 
+function cmakeTargetCalls(
+  body: string,
+  commands: string[],
+): Array<{ command: string; args: string }> {
+  return commands.flatMap((command) =>
+    cmakeCommandArgs(body, command).map((args) => ({ command, args })),
+  );
+}
+
 function cmakeCommandArgs(body: string, command: string): string[] {
   const args: string[] = [];
   const needle = command.toLowerCase();
@@ -660,8 +678,8 @@ async function mainFunctionTargets(
         .at(-1)
         ?.replace(/\.[^.]+$/u, "") ?? "main";
     seeds.push({
-      title: `${tag === "cpp" ? "C++" : "C"} binary ${command}`,
-      summary: `C/C++ source file with a top-level main() at ${file}.`,
+      title: `${languageLabel(tag)} binary ${command}`,
+      summary: `${tag === "cuda" ? "CUDA" : "C/C++"} source file with a top-level main() at ${file}.`,
       kind: "cli-command",
       source: "c-main",
       confidence: "medium",
@@ -670,7 +688,7 @@ async function mainFunctionTargets(
       route: null,
       command,
       tags: [tag, "cli"],
-      trustBoundaries: ["user-input", "filesystem", "process-exec"],
+      trustBoundaries: withCudaConcurrency(["user-input", "filesystem", "process-exec"], tag),
     });
   }
   return seeds;

@@ -2,6 +2,8 @@
 
 ## 0.4.1 - Unreleased
 
+- Added CUDA support to the C/C++ mapper, mapping `.cu` and `.cuh` sources as standalone `main()` files, CMake and autotools targets, legacy `FindCUDA` `cuda_add_executable` / `cuda_add_library` calls, and bounded loose source groups.
+- Made `clawpatch review` and `clawpatch fix` CUDA-aware, injecting CUDA-specific guidance for features that own `.cu` or `.cuh` sources.
 - Added shell and workflow review mapping for captured fallback-output ambiguity in command substitutions.
 - Fixed Codex provider calls to time out stalled `codex exec` children and release review locks, thanks @camwest.
 - Fixed Claude provider auth isolation to pass explicit Vertex AI, Google ADC, and Bedrock/AWS auth environment variables, thanks @zanetworker.

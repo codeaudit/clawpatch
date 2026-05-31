@@ -182,6 +182,8 @@ ${customPrompt.trim()}
     ...new Set(includedFiles.filter((file) => file.readable).map((file) => file.path)),
   ];
   const languageGuidance = reviewLanguageGuidance(project);
+  const cudaBlock =
+    mode === "default" && featureIncludesCuda(feature) ? `\n${cudaGuidance()}\n` : "";
   const prompt = `You are reviewing one semantic feature for clawpatch.
 
 Return strict JSON only. No markdown fences.
@@ -211,7 +213,7 @@ Shell and workflow review:
 - Focus this rule on captured or parsed values, not human-facing logging fallbacks like some_command || echo "failed".
 - Recommend separating the primary command capture from fallback assignment, for example if ! status="$(cmd)"; then status="fallback"; fi.
 
-${reviewModeInstructions(mode)}
+${reviewModeInstructions(mode)}${cudaBlock}
 
 ${languageGuidance}
 
@@ -293,6 +295,25 @@ function reviewLanguageGuidance(project: ProjectRecord): string {
   return `Python compatibility guidance:
 - Treat included target-runtime metadata such as .python-version, pyproject.toml requires-python, setup.cfg/setup.py python_requires, runtime.txt, and .tool-versions as authoritative when assessing syntax compatibility.
 - For Python 3.14 or newer, PEP 758 permits unparenthesized multiple exception types in except/except* clauses when no as target is used; do not report that syntax as invalid for Python 3.14+ projects.`;
+}
+
+function featureIncludesCuda(feature: FeatureRecord): boolean {
+  const paths = [
+    ...feature.entrypoints.map((entrypoint) => entrypoint.path),
+    ...feature.ownedFiles.map((file) => file.path),
+  ];
+  return paths.some((path) => /\.cuh?$/iu.test(path));
+}
+
+function cudaGuidance(): string {
+  return `This feature includes CUDA .cu/.cuh sources. Inspect for these CUDA hazards:
+- Kernel data races; missing, divergent, or conditionally-reached __syncthreads()/__syncwarp() barriers.
+- Unchecked CUDA runtime calls (cudaMalloc, cudaMemcpy, cudaFree, async copies) and missing cudaGetLastError()/cudaDeviceSynchronize() after a kernel launch.
+- Host vs. device pointer confusion: dereferencing device memory on the host, or passing the wrong memory space or copy direction to cudaMemcpy.
+- Out-of-bounds or uncoalesced global-memory access, shared-memory bank conflicts, and blockIdx/threadIdx-derived indices used without bounds checks.
+- Stream and event synchronization errors, including use-after-free across asynchronous copies.
+- Device-memory leaks: allocations not freed on every return path.
+Map findings to the existing categories (concurrency, bug, data-loss, performance). Report only hazards visible in the included code; do not speculate about GPU runtime behavior you cannot see.`;
 }
 
 function uniquePromptRefs<T extends { path: string }>(
@@ -387,6 +408,7 @@ export async function buildFixPrompt(
   for (const path of fixPromptPaths(finding, feature, config)) {
     fileBlocks.push(await rawFileBlock(root, path));
   }
+  const cudaBlock = featureIncludesCuda(feature) ? `\n${cudaGuidance()}\n` : "";
   return `You are clawpatch applying one small repair in the current repository.
 
 Fix only the finding below. Keep the patch minimal. Add or update focused tests when feasible.
@@ -400,7 +422,7 @@ After editing, return strict JSON only:
   "steps": ["string"],
   "validationCommands": ["string"]
 }
-
+${cudaBlock}
 Finding:
 ${JSON.stringify(finding, null, 2)}
 
